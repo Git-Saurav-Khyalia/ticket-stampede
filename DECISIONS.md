@@ -75,7 +75,7 @@ environmental variability rather than quietly dropped.
 - **Distributed capacity**: concurrency 10/25/50/75 through Nginx, 1000
   tickets/requests, duplicate rate 0 — full numbers in
   `experiments/EXPERIMENTS.md`.
-- Full suite: **38 tests passing** at the latest verified checkpoint.
+- Full suite: **39 tests passing** at the latest verified checkpoint.
 
 ## Where it breaks
 
