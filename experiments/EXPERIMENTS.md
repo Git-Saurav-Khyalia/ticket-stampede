@@ -197,3 +197,56 @@ Row-lock serialization. The ticket allocation path (find_next_available() in app
 Conclusion
 
 Based strictly on the measured results above, the practical saturation region for this system, as currently configured, is approximately concurrency 50-60: correctness holds throughout, but median and tail latency have already degraded substantially (into the several- hundred-millisecond to multi-second range) and throughput is visibly declining from its concurrency-10/25 baseline. Concurrency 75 produces a hard failure — measured, logged connection-pool exhaustion (QueuePool limit of size 5 overflow 10 reached, ... timeout 30.00) — rather than a graceful continuation of the degradation trend. Both the connection pool ceiling and the row-lock serialization in the ticket allocation path are plausible contributors to the pre-75 latency growth; this investigation does not isolate their relative contributions, and no code changes have been made based on these findings.
+
+
+## Distributed Three-Seller Experiment
+
+### Configuration
+
+- Seller instances: 3
+- Load balancer: Nginx
+- Database: PostgreSQL
+- Tickets: 1000
+- Requests: 2000
+- Concurrency: 50
+- Duplicate rate: 50%
+- Seed: 42
+
+### Measured results
+
+- Requests completed: 1980/2000
+- Successful HTTP responses: 1965
+- Failed requests: 35
+- Throughput: 167.8 req/s
+- Median latency: 74.1 ms
+- P99 latency: 9080.7 ms
+- Total duration: 11.92 s
+
+### Correctness
+
+- No overselling: PASS
+- Unique tickets: PASS
+- Request idempotency: PASS
+- Status consistency: PASS
+- Successful response ticket uniqueness: PASS
+- Overall: PASS
+
+### Interpretation
+
+The three seller instances successfully shared a single PostgreSQL-backed
+allocation state without requiring an application-level lock or sticky
+sessions. Correctness remained intact when requests were distributed across
+independent seller processes.
+
+The successful HTTP response count exceeds the 1000-ticket inventory because
+duplicate request IDs can legitimately receive the same previously-issued
+ticket. The verifier separately checks ticket uniqueness and request
+idempotency.
+
+The most notable performance result is the large gap between median latency
+(74.1 ms) and P99 latency (9080.7 ms). This indicates substantial tail
+latency under contention even though the correctness invariants continue to
+hold. The 35 failed requests also require investigation before treating this
+configuration as a production-ready throughput target.
+
+2,000 requests were sent through Nginx to three independent seller instances sharing PostgreSQL. All five correctness invariants passed. The 17 failed requests were HTTP 409 Conflict responses caused by inventory exhaustion, not application/server errors. Nginx produced no 502/503/504/error output.

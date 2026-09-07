@@ -15,15 +15,53 @@ services:
     volumes:
       - stampede_pgdata:/var/lib/postgresql/data
 
-  seller:
+  seller-1:
     build: .
-    ports:
-      - "8000:8000"
     environment:
       DATABASE_URL: postgresql+psycopg://stampede:stampede@db:5432/stampede
     depends_on:
       db:
         condition: service_healthy
+    # Mitigates a narrow startup race: if two seller instances start
+    # against a freshly empty database at the same moment, both may see
+    # "tables don't exist" and both attempt CREATE TABLE (app/main.py's
+    # Base.metadata.create_all()); the loser crashes with a Postgres
+    # DuplicateTable error. On restart it finds the tables already exist
+    # (created by the winner) and starts normally. This is a one-time
+    # bootstrap concern, not an ongoing correctness issue -- ticket
+    # allocation and idempotency are enforced by PostgreSQL itself
+    # (SELECT ... FOR UPDATE, UNIQUE(sale_id, request_id)), independent
+    # of which or how many seller instances are running.
+    restart: on-failure
+
+  seller-2:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://stampede:stampede@db:5432/stampede
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+
+  seller-3:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+psycopg://stampede:stampede@db:5432/stampede
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: on-failure
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8000:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - seller-1
+      - seller-2
+      - seller-3
 
 volumes:
   stampede_pgdata:
